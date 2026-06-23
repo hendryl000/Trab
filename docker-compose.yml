@@ -6,12 +6,12 @@ services:
       - "8000:8000"
     environment:
       MONGO_URL: mongodb://mongo:27017
-      MONGO_DATABASE: order_hub
-      MONGO_COLLECTION: customer_orders
+      MONGO_DATABASE: nucleo_comercial
+      MONGO_COLLECTION: registro_pedidos
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_TOPIC: order-lifecycle-events
+      KAFKA_TOPIC: comercio.pedidos.criados.v1
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      RABBITMQ_QUEUE: new-order-notifications
+      RABBITMQ_QUEUE: pedidos.entrada
     depends_on:
       mongo:
         condition: service_healthy

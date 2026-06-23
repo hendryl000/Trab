@@ -4,54 +4,59 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, status
 
-from app.dependencies import get_event_dispatcher, get_mongo_client, get_order_repository
-from app.event_dispatcher import EventDispatcher
-from app.order_repository import OrderRepository
-from app.schemas import OrderCreate, OrderStatus, OrderView
+from app.acervo_pedidos import AcervoDePedidos
+from app.contratos import PedidoCadastrado, PedidoParaCadastrar, SituacaoPedido
+from app.montagem import acervo_pedidos, cliente_mongo, saida_eventos
+from app.ponte_eventos import SaidaDeEventos
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def ciclo_de_vida(_: FastAPI):
     yield
-    get_event_dispatcher().close()
-    get_mongo_client().close()
+    saida_eventos().encerrar()
+    cliente_mongo().close()
 
 
 app = FastAPI(
-    title="OrderFlow API",
-    description="Gerenciamento de pedidos com MongoDB e eventos assincronos.",
-    version="2.0.0",
-    lifespan=lifespan,
+    title="RastroPedido API",
+    description="Registro de pedidos e propagacao de acontecimentos comerciais.",
+    version="1.0.0",
+    lifespan=ciclo_de_vida,
 )
 
 
-@app.get("/", tags=["Sistema"])
-def root() -> dict[str, str]:
-    return {"service": "OrderFlow API", "documentation": "/docs"}
+@app.get("/", tags=["Operacao"])
+def inicio() -> dict[str, str]:
+    return {"servico": "RastroPedido API", "documentacao": "/docs"}
 
 
-@app.get("/health", tags=["Sistema"])
-def healthcheck() -> dict[str, str]:
-    return {"status": "ok"}
+@app.get("/saude", tags=["Operacao"])
+def verificar_saude() -> dict[str, str]:
+    return {"situacao": "disponivel"}
 
 
-@app.post("/orders", response_model=OrderView, status_code=status.HTTP_201_CREATED, tags=["Pedidos"])
-def create_order(
-    payload: OrderCreate,
-    repository: OrderRepository = Depends(get_order_repository),
-    dispatcher: EventDispatcher = Depends(get_event_dispatcher),
+@app.post(
+    "/pedidos",
+    response_model=PedidoCadastrado,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Pedidos"],
+)
+def cadastrar_pedido(
+    entrada: PedidoParaCadastrar,
+    acervo: AcervoDePedidos = Depends(acervo_pedidos),
+    eventos: SaidaDeEventos = Depends(saida_eventos),
 ) -> dict:
-    order = {
-        "id": str(uuid4()),
-        **payload.model_dump(),
-        "status": OrderStatus.PENDING.value,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+    pedido = {
+        "codigo": str(uuid4()),
+        **entrada.model_dump(),
+        "situacao": SituacaoPedido.PENDENTE.value,
+        "registrado_em": datetime.now(timezone.utc).isoformat(),
     }
-    repository.add(order)
-    dispatcher.announce_created(order)
-    return order
+    acervo.guardar(pedido)
+    eventos.espalhar_pedido_criado(pedido)
+    return pedido
 
 
-@app.get("/orders", response_model=list[OrderView], tags=["Pedidos"])
-def list_orders(repository: OrderRepository = Depends(get_order_repository)) -> list[dict]:
-    return repository.find_all()
+@app.get("/pedidos", response_model=list[PedidoCadastrado], tags=["Pedidos"])
+def listar_pedidos(acervo: AcervoDePedidos = Depends(acervo_pedidos)) -> list[dict]:
+    return acervo.consultar_todos()
